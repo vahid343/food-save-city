@@ -39,7 +39,6 @@ interface Suggestion {
   action: "discount" | "donation";
   reason: string;
   daysLeft: number;
-  isDonated?: boolean;
 }
 
 interface HistoryEntry {
@@ -48,6 +47,7 @@ interface HistoryEntry {
   discount_percentage: number | null;
   reason: string | null;
   created_at: string;
+  product_id: string;
   products: { name: string; category: string } | null;
 }
 
@@ -67,7 +67,6 @@ export default function RiskZone() {
     const riskDate = new Date();
     riskDate.setDate(today.getDate() + 5);
 
-    // Fetch risk products, discounted history, donated history, and donated product IDs in parallel
     const [productsRes, discountedRes, donatedRes] = await Promise.all([
       supabase
         .from("products")
@@ -88,14 +87,14 @@ export default function RiskZone() {
         .order("created_at", { ascending: false }),
     ]);
 
-    // Set history lists
     setDiscountedItems((discountedRes.data as HistoryEntry[]) ?? []);
     setDonatedItems((donatedRes.data as HistoryEntry[]) ?? []);
 
-    // Build set of donated product IDs
-    const donatedProductIds = new Set(
-      (donatedRes.data ?? []).map((d: any) => d.product_id)
-    );
+    // Build sets of product IDs that already have actions
+    const actionedProductIds = new Set([
+      ...((discountedRes.data ?? []) as any[]).map((d) => d.product_id),
+      ...((donatedRes.data ?? []) as any[]).map((d) => d.product_id),
+    ]);
 
     const products = productsRes.data as Product[] | null;
     if (!products) {
@@ -103,21 +102,20 @@ export default function RiskZone() {
       return;
     }
 
-    const results: Suggestion[] = products.map((p) => {
+    // Filter out products that already have an action
+    const riskProducts = products.filter((p) => !actionedProductIds.has(p.id));
+
+    const results: Suggestion[] = riskProducts.map((p) => {
       const daysLeft = Math.ceil(
         (new Date(p.expiry_date).getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
       );
       const expectedSales = Number(p.avg_daily_sales) * daysLeft;
       const surplus = p.quantity - expectedSales;
-      const isDonated = donatedProductIds.has(p.id);
 
       let action: "discount" | "donation";
       let reason: string;
 
-      if (isDonated) {
-        action = "donation";
-        reason = "Ovaj proizvod je već doniran.";
-      } else if (surplus > 0 && daysLeft >= 2 && Number(p.avg_daily_sales) > 0) {
+      if (surplus > 0 && daysLeft >= 2 && Number(p.avg_daily_sales) > 0) {
         action = "discount";
         reason = `Preostalo ${daysLeft} dana; višak od ${Math.round(surplus)} kom. iznad očekivane prodaje. Sniženje može ubrzati prodaju.`;
       } else {
@@ -128,7 +126,7 @@ export default function RiskZone() {
             : `Preostalo ${daysLeft} dana; niska prosečna prodaja (${Number(p.avg_daily_sales).toFixed(1)}/dan) za ${p.quantity} kom. na stanju.`;
       }
 
-      return { product: p, action, reason, daysLeft, isDonated };
+      return { product: p, action, reason, daysLeft };
     });
 
     setSuggestions(results);
@@ -140,11 +138,6 @@ export default function RiskZone() {
   }, []);
 
   const handleConfirm = async (suggestion: Suggestion, actionType: "discount" | "donation") => {
-    if (suggestion.isDonated && actionType === "discount") {
-      toast({ title: "Greška", description: "Donirani proizvod ne može biti snižen.", variant: "destructive" });
-      return;
-    }
-
     const { error } = await supabase.from("action_history").insert({
       product_id: suggestion.product.id,
       action_type: actionType,
@@ -172,6 +165,32 @@ export default function RiskZone() {
 
     setSelectedSuggestion(null);
     setDiscountPercent(30);
+    fetchAll();
+  };
+
+  const handleDonateFromDiscount = async (entry: HistoryEntry) => {
+    const { error } = await supabase.from("action_history").insert({
+      product_id: entry.product_id,
+      action_type: "donation",
+      reason: "Prethodno snižen, sada doniran.",
+      decided_by: user?.id,
+    });
+
+    if (error) {
+      toast({ title: "Greška", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    await supabase
+      .from("products")
+      .update({ quantity: 0 })
+      .eq("id", entry.product_id);
+
+    toast({
+      title: "Donacija označena!",
+      description: `${entry.products?.name ?? "Proizvod"} - pripremljeno za donaciju`,
+    });
+
     fetchAll();
   };
 
@@ -203,6 +222,7 @@ export default function RiskZone() {
           </TabsTrigger>
         </TabsList>
 
+        {/* RIZIČNI TAB */}
         <TabsContent value="risk" className="mt-4">
           {loading ? (
             <p className="text-muted-foreground">Analiza u toku...</p>
@@ -222,15 +242,10 @@ export default function RiskZone() {
                     <div className="flex items-start justify-between">
                       <CardTitle className="text-lg">{s.product.name}</CardTitle>
                       <Badge
-                        variant={s.isDonated ? "secondary" : s.action === "discount" ? "default" : "destructive"}
+                        variant={s.action === "discount" ? "default" : "destructive"}
                         className="shrink-0"
                       >
-                        {s.isDonated ? (
-                          <>
-                            <Heart className="h-3 w-3 mr-1" />
-                            Doniran
-                          </>
-                        ) : s.action === "discount" ? (
+                        {s.action === "discount" ? (
                           <>
                             <TrendingDown className="h-3 w-3 mr-1" />
                             Sniženje
@@ -258,14 +273,11 @@ export default function RiskZone() {
                         </span>
                       </div>
                     </div>
-
                     <p className="text-sm bg-muted/50 p-3 rounded-lg">{s.reason}</p>
-
                     <div className="flex gap-2">
                       <Button
                         size="sm"
                         className="flex-1"
-                        disabled={s.isDonated}
                         onClick={() => {
                           setSelectedSuggestion(s);
                           setDiscountPercent(30);
@@ -278,7 +290,6 @@ export default function RiskZone() {
                         size="sm"
                         variant="outline"
                         className="flex-1"
-                        disabled={s.isDonated}
                         onClick={() => handleConfirm(s, "donation")}
                       >
                         <Heart className="h-4 w-4 mr-1" />
@@ -292,6 +303,7 @@ export default function RiskZone() {
           )}
         </TabsContent>
 
+        {/* SNIŽENI TAB */}
         <TabsContent value="discounted" className="mt-4">
           {loading ? (
             <p className="text-muted-foreground">Učitavanje...</p>
@@ -312,30 +324,49 @@ export default function RiskZone() {
                     <TableHead className="text-right">Popust</TableHead>
                     <TableHead>Razlog</TableHead>
                     <TableHead>Datum</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {discountedItems.map((h) => (
-                    <TableRow key={h.id}>
-                      <TableCell className="font-medium">{h.products?.name ?? "—"}</TableCell>
-                      <TableCell>{h.products?.category ?? "—"}</TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant="default">{h.discount_percentage}%</Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
-                        {h.reason ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {format(new Date(h.created_at), "dd. MMM yyyy, HH:mm")}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {discountedItems.map((h) => {
+                    const alreadyDonated = donatedItems.some((d) => d.product_id === h.product_id);
+                    return (
+                      <TableRow key={h.id}>
+                        <TableCell className="font-medium">{h.products?.name ?? "—"}</TableCell>
+                        <TableCell>{h.products?.category ?? "—"}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant="default">{h.discount_percentage}%</Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
+                          {h.reason ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {format(new Date(h.created_at), "dd. MMM yyyy, HH:mm")}
+                        </TableCell>
+                        <TableCell>
+                          {alreadyDonated ? (
+                            <Badge variant="secondary">Donirano</Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDonateFromDiscount(h)}
+                            >
+                              <Heart className="h-4 w-4 mr-1" />
+                              Doniraj
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
           )}
         </TabsContent>
 
+        {/* DONIRANI TAB */}
         <TabsContent value="donated" className="mt-4">
           {loading ? (
             <p className="text-muted-foreground">Učitavanje...</p>

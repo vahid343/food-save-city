@@ -14,16 +14,143 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      action_history: {
+        Row: {
+          action_type: string
+          created_at: string
+          decided_by: string | null
+          discount_percentage: number | null
+          id: string
+          product_id: string
+          reason: string | null
+        }
+        Insert: {
+          action_type: string
+          created_at?: string
+          decided_by?: string | null
+          discount_percentage?: number | null
+          id?: string
+          product_id: string
+          reason?: string | null
+        }
+        Update: {
+          action_type?: string
+          created_at?: string
+          decided_by?: string | null
+          discount_percentage?: number | null
+          id?: string
+          product_id?: string
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "action_history_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          avg_daily_sales: number
+          category: string
+          created_at: string
+          created_by: string | null
+          expiry_date: string
+          id: string
+          name: string
+          price: number
+          quantity: number
+          updated_at: string
+        }
+        Insert: {
+          avg_daily_sales?: number
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          expiry_date: string
+          id?: string
+          name: string
+          price?: number
+          quantity?: number
+          updated_at?: string
+        }
+        Update: {
+          avg_daily_sales?: number
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          expiry_date?: string
+          id?: string
+          name?: string
+          price?: number
+          quantity?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          full_name: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "manager" | "operator"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +277,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["manager", "operator"],
+    },
   },
 } as const

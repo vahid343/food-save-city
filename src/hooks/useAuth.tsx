@@ -30,17 +30,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     const fetchRole = (userId: string) => {
-      supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .single()
-        .then(({ data }) => {
-          if (mounted) setRole((data?.role as UserRole) ?? "operator");
-        })
-        .catch(() => {
-          if (mounted) setRole("operator");
-        });
+      Promise.resolve(
+        supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", userId)
+          .single()
+      ).then(({ data }) => {
+        if (mounted) setRole((data?.role as UserRole) ?? "operator");
+      }).catch(() => {
+        if (mounted) setRole("operator");
+      });
     };
 
     const handleSession = (session: Session | null) => {

@@ -29,50 +29,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const fetchRole = async (userId: string): Promise<UserRole> => {
-      try {
-        const { data } = await supabase
+    const fetchRole = (userId: string) => {
+      Promise.resolve(
+        supabase
           .from("user_roles")
           .select("role")
           .eq("user_id", userId)
-          .single();
-        return (data?.role as UserRole) ?? "operator";
-      } catch {
-        return "operator";
-      }
+          .single()
+      ).then(({ data }) => {
+        if (mounted) setRole((data?.role as UserRole) ?? "operator");
+      }).catch(() => {
+        if (mounted) setRole("operator");
+      });
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (!mounted) return;
-        setSession(session);
-        setUser(session?.user ?? null);
-
-        if (session?.user) {
-          const userRole = await fetchRole(session.user.id);
-          if (mounted) setRole(userRole);
-        } else {
-          setRole(null);
-        }
-        if (mounted) setLoading(false);
-      }
-    );
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    const handleSession = (session: Session | null) => {
       if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        const userRole = await fetchRole(session.user.id);
-        if (mounted) setRole(userRole);
+        fetchRole(session.user.id);
+      } else {
+        setRole(null);
       }
-      if (mounted) setLoading(false);
+      setLoading(false);
+    };
+
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      handleSession(session);
     }).catch(() => {
       if (mounted) setLoading(false);
     });
 
+    // Listen for auth changes (sign in, sign out, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        handleSession(session);
+      }
+    );
+
+    // Safety timeout - never stay loading forever
+    const timeout = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 5000);
+
     return () => {
       mounted = false;
+      clearTimeout(timeout);
       subscription.unsubscribe();
     };
   }, []);

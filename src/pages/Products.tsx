@@ -73,6 +73,10 @@ export default function Products() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.name.trim() || !form.expiry_date) {
+      toast({ title: "Greška", description: "Popunite sva obavezna polja (naziv i datum isteka).", variant: "destructive" });
+      return;
+    }
     const { error } = await supabase.from("products").insert({
       ...form,
       created_by: user?.id,
